@@ -1,106 +1,201 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-    <head>
-    	<title>Strava Live Moving Polyline</title>
-    	<meta charset="utf-8" />
+  <head>
+    <title>Strava Live Moving Polyline</title>
+    <meta charset="utf-8" />
 
-    	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-		<link rel="stylesheet" href="https://leaflet.github.io/Leaflet.draw/src/leaflet.draw.css"/>
-		<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link
+      rel="stylesheet"
+      href="https://leaflet.github.io/Leaflet.draw/src/leaflet.draw.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"
+    />
 
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-	<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.2/leaflet.draw.js"></script>
-	<script src="https://unpkg.com/leaflet.motion@0.3.2/dist/leaflet.motion.min.js"></script>
-        <style>
-            html, body, #map { width: 100%; height: 100%; margin: 0px; padding: 0px;}
-			.leaflet-div-icon {
-				background: transparent!important;
-				border: none!important;
-				color: white;
-			}
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.2/leaflet.draw.js"></script>
+    <script src="https://unpkg.com/leaflet.motion@0.3.2/dist/leaflet.motion.min.js"></script>
+    <style>
+      html,
+      body,
+      #map {
+        width: 100%;
+        height: 100%;
+        margin: 0px;
+        padding: 0px;
+      }
+      .leaflet-div-icon {
+        background: transparent !important;
+        border: none !important;
+        color: white;
+      }
 
-			.red {
-				color: red!important;
-			}
-        </style>
-     </head>
+      .red {
+        color: red !important;
+      }
+    </style>
+  </head>
 
-    <body>
+  <body>
+    <div id="map"></div>
+    <script>
+      var polyline = {};
 
-		<div id="map"></div>
-    	<script>
-			var map = L.map("map").setView([51, 1], 8);
+      function py2_round(value) {
+        return Math.floor(Math.abs(value) + 0.5) * (value >= 0 ? 1 : -1);
+      }
 
-			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-				attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-			}).addTo(map);
+      function encode(current, previous, factor) {
+        current = py2_round(current * factor);
+        previous = py2_round(previous * factor);
+        var coordinate = (current - previous) * 2;
+        if (coordinate < 0) {
+          coordinate = -coordinate - 1;
+        }
+        var output = "";
+        while (coordinate >= 0x20) {
+          output += String.fromCharCode((0x20 | (coordinate & 0x1f)) + 63);
+          coordinate /= 32;
+        }
+        output += String.fromCharCode((coordinate | 0) + 63);
+        return output;
+      }
 
-			var options = {
-		        draw: {
-		            circle: false, // Turns off this drawing tool
-		            rectangle: false,
-		            marker: false,
-					circlemarker: false
-		        }
-		    };
+      polyline.decode = function (str, precision) {
+        var index = 0,
+          lat = 0,
+          lng = 0,
+          coordinates = [],
+          shift = 0,
+          result = 0,
+          byte = null,
+          latitude_change,
+          longitude_change,
+          factor = Math.pow(10, Number.isInteger(precision) ? precision : 5);
 
-			var drawControl = new L.Control.Draw(options);
-		    map.addControl(drawControl);
+        while (index < str.length) {
+          byte = null;
+          shift = 1;
+          result = 0;
 
-		    map.on(L.Draw.Event.CREATED, function (e) {
-		        var type = e.layerType,
-		            layer = e.layer;
+          do {
+            byte = str.charCodeAt(index++) - 63;
+            result += (byte & 0x1f) * shift;
+            shift *= 32;
+          } while (byte >= 0x20);
 
-				if (type === "polyline") {
-					var line = L.motion.polyline(layer.getLatLngs(), {
-						color: "orange"
-					}, {
-						auto: true,
-						easing: L.Motion.Ease.swing
-					}).motionSpeed(100000).addTo(map);
-				}
+          latitude_change = result & 1 ? (-result - 1) / 2 : result / 2;
 
-				if (type === "polygon") {
-					L.motion.polygon(layer.getLatLngs(), {
-						color: "red",
-						fill: true,
-						fillOpacity: 0.4
-					},{
-						auto: true
-					}, {
-						removeOnEnd: true,
-						icon: L.divIcon({className:"red", html: "<i class='fa fa-superpowers fa-spin fa-2x' aria-hidden='true' motion-base='0'></i>", iconSize: L.point(24, 24), iconAnchor: L.point(5, 22)})
-					}).motionDuration(10000).addTo(map);
-				}
-		    });
+          shift = 1;
+          result = 0;
 
-			var trackRoute = JSON.parse('[{"lat":51.15815239612826,"lng":-2.2055053710937504},{"lat":51.18569785341817,"lng":-2.1615600585937504},{"lat":51.19120493896969,"lng":-2.122009252198041},{"lat":51.22698519222996,"lng":-2.0187377929687504},{"lat":51.20221718842518,"lng":-1.979186986573041},{"lat":51.24211458943536,"lng":-1.8956908676773312},{"lat":51.22285808183325,"lng":-1.8429565429687502},{"lat":51.253114667550555,"lng":-1.7726440262049439},{"lat":51.25036488157529,"lng":-1.7023315094411375},{"lat":51.264112114656214,"lng":-1.6276245284825566},{"lat":51.28472525702113,"lng":-1.56829833984375},{"lat":51.26960987786426,"lng":-1.5309448074549437},{"lat":51.27510698339771,"lng":-1.4891967270523312},{"lat":51.29296795605501,"lng":-1.4474487304687502},{"lat":51.286099169144734,"lng":-1.3837279938161375},{"lat":51.27922935475756,"lng":-1.3397826813161373},{"lat":51.31494117540117,"lng":-1.2694701645523312},{"lat":51.32866911860522,"lng":-1.2057494278997185},{"lat":51.35611262745693,"lng":-1.1266478989273312},{"lat":51.39039390837808,"lng":-1.0695190262049439},{"lat":51.382168736719194,"lng":-1.0057982895523312},{"lat":51.37394211276064,"lng":-0.9596557449549438},{"lat":51.353369031707764,"lng":-0.9025268722325565},{"lat":51.347881294944216,"lng":-0.8651732560247184},{"lat":51.32866911860522,"lng":-0.8234251756221057},{"lat":51.31082203572863,"lng":-0.7860717270523311},{"lat":51.28335135620783,"lng":-0.6981811020523311},{"lat":51.291594301829406,"lng":-0.5905150528997184},{"lat":51.32043285621175,"lng":-0.5267943162471057},{"lat":51.36434245505222,"lng":-0.43670645914971834},{"lat":51.37805558339966,"lng":-0.35321029834449297},{"lat":51.3506252193158,"lng":-0.313659617677331},{"lat":51.32180564750844,"lng":-0.3004760574549437},{"lat":51.29296795605501,"lng":-0.27191153727471834},{"lat":51.27510698339771,"lng":-0.20159910432994368},{"lat":51.31631415723791,"lng":-0.12249740771949293},{"lat":51.361599352206966,"lng":-0.08074949495494367},{"lat":51.36022772609213,"lng":-0.0038450304418802266},{"lat":51.32866906624522,"lng":0.04449474625289441},{"lat":51.30807559747286,"lng":0.08184819482266904},{"lat":51.28747293535334,"lng":0.1367800030857325},{"lat":51.26686102604075,"lng":0.20709243603050712},{"lat":51.2599882819768,"lng":0.2444462198764086},{"lat":51.22148222615174,"lng":0.33453390933573246},{"lat":51.18156698919849,"lng":0.3960574138909579},{"lat":51.14988546610741,"lng":0.4663701821118594},{"lat":51.109908194320916,"lng":0.5718386638909579},{"lat":51.107149852721776,"lng":0.6751100812107326},{"lat":51.053329467578955,"lng":0.7805788982659579},{"lat":51.014650651391285,"lng":0.8377076033502817},{"lat":50.9690233345503,"lng":0.9036255721002818},{"lat":50.93996435333021,"lng":0.9585572127252818},{"lat":50.921966522212145,"lng":0.9651490766555072}]');
+          do {
+            byte = str.charCodeAt(index++) - 63;
+            result += (byte & 0x1f) * shift;
+            shift *= 32;
+          } while (byte >= 0x20);
 
-			var seqGroup = L.motion.seq([
-					L.motion.polyline(trackRoute, {
-					color: "orangered"
-					}, {
-						easing: L.Motion.Ease.easeInOutQuad
-					}, {
-						removeOnEnd: true,
-						icon: L.divIcon({html: "<i class='fa fa-truck fa-2x fa-flip-horizontal' aria-hidden='true'></i>", iconSize: L.point(27.5, 24)})
-					}).motionDuration(8000)
+          longitude_change = result & 1 ? (-result - 1) / 2 : result / 2;
 
-				])
-			seqGroup.on("click", function(){
-				seqGroup.motionStart();
-			});
+          lat += latitude_change;
+          lng += longitude_change;
 
-			seqGroup.on("dblclick", function(e){
-				seqGroup.motionToggle();
-			});
+          coordinates.push([lat / factor, lng / factor]);
+        }
 
-			setTimeout(function () {
-				seqGroup.motionStart();
-			}, 1000);
+        return coordinates;
+      };
 
-    	</script>
-    </body>
+      polyline.encode = function (coordinates, precision) {
+        if (!coordinates.length) {
+          return "";
+        }
 
+        var factor = Math.pow(10, Number.isInteger(precision) ? precision : 5),
+          output =
+            encode(coordinates[0][0], 0, factor) +
+            encode(coordinates[0][1], 0, factor);
+
+        for (var i = 1; i < coordinates.length; i++) {
+          var a = coordinates[i],
+            b = coordinates[i - 1];
+          output += encode(a[0], b[0], factor);
+          output += encode(a[1], b[1], factor);
+        }
+
+        return output;
+      };
+
+      function flipped(coords) {
+        var flipped = [];
+        for (var i = 0; i < coords.length; i++) {
+          var coord = coords[i].slice();
+          flipped.push([coord[1], coord[0]]);
+        }
+        return flipped;
+      }
+
+      polyline.fromGeoJSON = function (geojson, precision) {
+        if (geojson && geojson.type === "Feature") {
+          geojson = geojson.geometry;
+        }
+        if (!geojson || geojson.type !== "LineString") {
+          throw new Error("Input must be a GeoJSON LineString");
+        }
+        return polyline.encode(flipped(geojson.coordinates), precision);
+      };
+
+      polyline.toGeoJSON = function (str, precision) {
+        var coords = polyline.decode(str, precision);
+        return {
+          type: "LineString",
+          coordinates: flipped(coords),
+        };
+      };
+
+      var map = L.map("map").setView([51, 1], 8);
+
+      L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      ).addTo(map);
+
+      (async () => {
+        const data = await fetch("https://leecheeyong.vercel.app/strava").then(
+          (r) => r.json(),
+        );
+		const pline = polyline.decode(data.map.summary_polyline)
+        var trackRoute = pline.map(m => { return { lat: m[0], lng: m[1] } });
+		map.setView(pline[(pline.length / 4).toFixed(0)], 15)
+        var seqGroup = L.motion
+          .seq([
+            L.motion
+              .polyline(
+                trackRoute,
+                {
+                  color: "orangered",
+                },
+                {
+                  easing: L.Motion.Ease.easeInOutQuad,
+                },
+                {
+                  removeOnEnd: true,
+                  icon: L.divIcon({
+                    html: "<i class='fa fa-circle fa-flip-horizontal' aria-hidden='true'></i>",
+                    iconSize: L.point(10.5, 5),
+                  }),
+                },
+              )
+              .motionDuration(25000),
+          ])
+          .addTo(map);
+
+        setTimeout(function () {
+          seqGroup.motionStart();
+        }, 1000);
+      })();
+    </script>
+  </body>
 </html>
