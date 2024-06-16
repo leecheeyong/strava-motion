@@ -159,9 +159,9 @@
       L.tileLayer(
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       ).addTo(map);
-
+      const query = (new URLSearchParams(window.location.search)).get("id");
       (async () => {
-        const data = await fetch("https://leecheeyong.vercel.app/strava").then(
+        const data = await fetch(`https://leecheeyong.vercel.app/strava${query ? `?id=${query}` : ""}`).then(
           (r) => r.json(),
         );
 	const pline = polyline.decode(data.map.summary_polyline)
