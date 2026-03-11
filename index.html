@@ -167,7 +167,7 @@
           (r) => r.json(),
         );
 	const pline = polyline.decode(data.map.summary_polyline)
-        var trackRoute = pline.map(m => { return { lat: m[0], lng: m[1] } });
+    var trackRoute = pline.map(m => { return { lat: m[0], lng: m[1] } });
 	map.setView(pline[(pline.length / 4).toFixed(0)], 16)
         var seqGroup = L.motion
           .seq([
