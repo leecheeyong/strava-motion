@@ -61,7 +61,6 @@
       }
 
       polyline.decode = function (str, precision) {
-		  console.log(str)
         var index = 0,
           lat = 0,
           lng = 0,
@@ -149,7 +148,7 @@
         var coords = polyline.decode(str, precision);
         return {
           type: "LineString",
-       					   coordinates: flipped(coords),
+       	  coordinates: flipped(coords)
         };
       };
 
