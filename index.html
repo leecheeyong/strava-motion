@@ -928,7 +928,7 @@
 
       // Fixed: Build URL params correctly regardless of which params are present
       function buildApiUrl() {
-        var base = "https://leecheeyong.vercel.app/strava";
+        var base = "https://leecheeyong.vercel.app/strava-logs";
         var params = [];
         if (pwd) params.push("pwd=" + encodeURIComponent(pwd));
         if (activity) params.push("activity=" + encodeURIComponent(activity));
@@ -944,7 +944,26 @@
         try {
           var response = await fetch(buildApiUrl());
           if (!response.ok) throw new Error("HTTP " + response.status);
-          var data = await response.json();
+
+          var responseText = await response.text();
+          if (!responseText || responseText.trim().length === 0) {
+            throw new Error(
+              "Empty response from server — no activity data returned",
+            );
+          }
+
+          var data;
+          try {
+            data = JSON.parse(responseText);
+          } catch (parseErr) {
+            throw new Error("Invalid JSON response from server");
+          }
+
+          if (!data || !data.map || !data.map.summary_polyline) {
+            throw new Error(
+              "Response is missing route data (summary_polyline)",
+            );
+          }
 
           var minuteData = data.minuteData || null;
           if (!minuteData || minuteData.length === 0) {
