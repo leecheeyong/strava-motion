@@ -1,50 +1,586 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <title>Strava Live Moving Polyline</title>
     <meta charset="utf-8" />
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <meta
+      name="description"
+      content="Live Strava activity replay with real-time metrics overlay"
+    />
     <link
       rel="stylesheet"
-      href="https://leaflet.github.io/Leaflet.draw/src/leaflet.draw.css"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     />
-
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.2/leaflet.draw.js"></script>
     <script src="https://unpkg.com/leaflet.motion@0.3.2/dist/leaflet.motion.min.js"></script>
     <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
       html,
-      body,
+      body {
+        width: 100%;
+        height: 100%;
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        overflow: hidden;
+        background: #0a0a0a;
+      }
+
       #map {
         width: 100%;
         height: 100%;
-        margin: 0px;
-        padding: 0px;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
       }
+
       .leaflet-div-icon {
         background: transparent !important;
         border: none !important;
-        color: white;
       }
 
-      .red {
-        color: red !important;
+      /* ─── Overlay Panel ─── */
+      #metrics-overlay {
+        position: absolute;
+        z-index: 1000;
+        pointer-events: auto;
+        transition:
+          opacity 0.35s ease,
+          transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      #metrics-overlay.collapsed {
+        opacity: 0;
+        transform: scale(0.92);
+        pointer-events: none;
+      }
+
+      #metrics-panel {
+        background: rgba(10, 10, 15, 0.72);
+        backdrop-filter: blur(24px) saturate(1.6);
+        -webkit-backdrop-filter: blur(24px) saturate(1.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 14px 16px 12px;
+        color: #fff;
+        min-width: 0;
+        width: 100%;
+        overflow: hidden;
+        box-shadow:
+          0 8px 32px rgba(0, 0, 0, 0.4),
+          0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+      }
+
+      /* ─── Resize Handle ─── */
+      #resize-handle {
+        position: absolute;
+        bottom: 0;
+        right: 0;
+        width: 18px;
+        height: 18px;
+        cursor: nwse-resize;
+        z-index: 1001;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+
+      #metrics-overlay:hover #resize-handle {
+        opacity: 0.4;
+      }
+
+      #resize-handle::after {
+        content: "";
+        position: absolute;
+        bottom: 4px;
+        right: 4px;
+        width: 8px;
+        height: 8px;
+        border-right: 2px solid rgba(255, 255, 255, 0.5);
+        border-bottom: 2px solid rgba(255, 255, 255, 0.5);
+        border-radius: 0 0 2px 0;
+      }
+
+      /* ─── Panel Header ─── */
+      .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
+      .panel-title {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1.4px;
+        color: rgba(255, 255, 255, 0.45);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .panel-elapsed {
+        font-size: 10px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.35);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .header-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      #speed-btn {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 10px;
+        font-weight: 600;
+        padding: 2px 6px;
+        cursor: pointer;
+        outline: none;
+        transition: all 0.2s ease;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      #speed-btn:hover {
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
+        border-color: rgba(255, 255, 255, 0.25);
+      }
+
+      #speed-btn:active {
+        transform: scale(0.95);
+      }
+
+      /* ─── Metrics Grid ─── */
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .metric-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        padding: 8px 10px;
+        position: relative;
+        overflow: hidden;
+        transition: background 0.25s ease;
+      }
+
+      .metric-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        border-radius: 2px 2px 0 0;
+        opacity: 0.85;
+      }
+
+      .metric-card.speed::before {
+        background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      }
+      .metric-card.heartrate::before {
+        background: linear-gradient(90deg, #ef4444, #f87171);
+      }
+      .metric-card.cadence::before {
+        background: linear-gradient(90deg, #a855f7, #c084fc);
+      }
+      .metric-card.elevation::before {
+        background: linear-gradient(90deg, #22c55e, #4ade80);
+      }
+
+      .metric-label {
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        margin-bottom: 2px;
+      }
+
+      .metric-card.speed .metric-label {
+        color: rgba(147, 197, 253, 0.8);
+      }
+      .metric-card.heartrate .metric-label {
+        color: rgba(252, 165, 165, 0.8);
+      }
+      .metric-card.cadence .metric-label {
+        color: rgba(216, 180, 254, 0.8);
+      }
+      .metric-card.elevation .metric-label {
+        color: rgba(134, 239, 172, 0.8);
+      }
+
+      .metric-value-container {
+        display: flex;
+        align-items: baseline;
+        gap: 3px;
+      }
+
+      .metric-value {
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1.1;
+        font-variant-numeric: tabular-nums;
+        color: #fff;
+      }
+
+      .metric-unit {
+        font-size: 9px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.35);
+        letter-spacing: 0.2px;
+      }
+
+      /* ─── Toggle Button ─── */
+      #toggle-btn {
+        position: absolute;
+        z-index: 1001;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(10, 10, 15, 0.7);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(255, 255, 255, 0.65);
+        transition: all 0.25s ease;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        padding: 0;
+        outline: none;
+      }
+
+      #toggle-btn:hover {
+        background: rgba(20, 20, 30, 0.85);
+        color: #fff;
+        border-color: rgba(255, 255, 255, 0.2);
+        transform: scale(1.05);
+      }
+
+      #toggle-btn svg {
+        width: 16px;
+        height: 16px;
+        transition: transform 0.3s ease;
+      }
+
+      #toggle-btn.active svg {
+        transform: rotate(180deg);
+      }
+
+      /* ─── Progress Bar ─── */
+      #progress-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        z-index: 999;
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      #progress-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #f97316, #ef4444, #ec4899);
+        border-radius: 0 2px 2px 0;
+        transition: width 0.4s ease;
+        box-shadow: 0 0 8px rgba(249, 115, 22, 0.4);
+      }
+
+      /* ─── Loading State ─── */
+      #loading-screen {
+        position: absolute;
+        inset: 0;
+        z-index: 2000;
+        background: #0a0a0f;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        transition: opacity 0.6s ease;
+      }
+
+      #loading-screen.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .loading-spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid rgba(255, 255, 255, 0.08);
+        border-top-color: #f97316;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      .loading-text {
+        font-size: 11px;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.35);
+        font-weight: 500;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ─── Compact HUD Layout for Mobile / Iframes ─── */
+      #metrics-panel.compact-hud {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 10px;
+        gap: 8px;
+        border-radius: 20px;
+        background: rgba(10, 10, 15, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      #metrics-panel.compact-hud .panel-header {
+        margin-bottom: 0;
+        gap: 0;
+        flex-shrink: 0;
+      }
+      #metrics-panel.compact-hud .panel-title {
+        display: none;
+      }
+      #metrics-panel.compact-hud .panel-elapsed {
+        font-size: 11px;
+        font-weight: 600;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.1);
+        padding: 2px 6px;
+        border-radius: 10px;
+      }
+      #metrics-panel.compact-hud .metrics-grid {
+        display: flex;
+        flex-direction: row;
+        gap: 6px;
+        flex-grow: 1;
+        justify-content: space-around;
+      }
+      #metrics-panel.compact-hud .metric-card {
+        background: none;
+        border: none;
+        padding: 0;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 3px;
+      }
+      #metrics-panel.compact-hud .metric-card::before {
+        display: none;
+      }
+      #metrics-panel.compact-hud .metric-label {
+        display: none;
+      }
+      #metrics-panel.compact-hud .metric-value-container {
+        gap: 1px;
+      }
+      #metrics-panel.compact-hud .metric-value {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      #metrics-panel.compact-hud .metric-unit {
+        font-size: 8px;
+        opacity: 0.6;
+      }
+      #metrics-panel.compact-hud ~ #resize-handle {
+        display: none;
+      }
+      #metrics-panel.compact-hud #speed-btn {
+        font-size: 9px;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+
+      @media (max-width: 320px) {
+        .metric-value {
+          font-size: 16px;
+        }
+        .metrics-grid {
+          gap: 4px;
+        }
+        .metric-card {
+          padding: 6px 6px 5px;
+        }
+        .metric-label {
+          font-size: 7px;
+        }
+        .metric-unit {
+          font-size: 7px;
+        }
+        #metrics-panel {
+          padding: 10px 10px 8px;
+          border-radius: 12px;
+        }
+        .panel-title {
+          font-size: 8px;
+        }
+      }
+
+      @media (max-width: 200px) {
+        .metrics-grid {
+          grid-template-columns: 1fr;
+          gap: 3px;
+        }
+        .metric-value {
+          font-size: 14px;
+        }
+        .metric-card {
+          padding: 5px;
+        }
+        #metrics-panel {
+          padding: 8px;
+          border-radius: 10px;
+        }
+      }
+
+      /* ─── Error Toast ─── */
+      #error-toast {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 3000;
+        background: rgba(220, 38, 38, 0.15);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(220, 38, 38, 0.3);
+        border-radius: 12px;
+        padding: 16px 22px;
+        color: #fca5a5;
+        font-size: 13px;
+        display: none;
+        text-align: center;
+        max-width: 280px;
       }
     </style>
   </head>
 
   <body>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Loading Activity</div>
+    </div>
+
+    <!-- Map -->
     <div id="map"></div>
+
+    <!-- Progress Bar -->
+    <div id="progress-bar"><div id="progress-fill"></div></div>
+
+    <!-- Toggle Button -->
+    <button id="toggle-btn" class="active" title="Toggle metrics overlay">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <polyline points="6 9 12 15 18 9"></polyline>
+      </svg>
+    </button>
+
+    <!-- Metrics Overlay -->
+    <div id="metrics-overlay">
+      <div id="metrics-panel">
+        <div class="panel-header">
+          <span class="panel-title">Live Metrics</span>
+          <div class="header-controls">
+            <button id="speed-btn" title="Replay Speed">120x</button>
+            <span class="panel-elapsed" id="elapsed-time">00:00</span>
+          </div>
+        </div>
+        <div class="metrics-grid">
+          <!-- Speed -->
+          <div class="metric-card speed">
+            <div class="metric-label">Speed</div>
+            <div class="metric-value-container">
+              <span class="metric-value" id="val-speed">--</span>
+              <span class="metric-unit">km/h</span>
+            </div>
+          </div>
+          <!-- Heart Rate -->
+          <div class="metric-card heartrate">
+            <div class="metric-label">Heart Rate</div>
+            <div class="metric-value-container">
+              <span class="metric-value" id="val-hr">--</span>
+              <span class="metric-unit">bpm</span>
+            </div>
+          </div>
+          <!-- Cadence -->
+          <div class="metric-card cadence">
+            <div class="metric-label">Cadence</div>
+            <div class="metric-value-container">
+              <span class="metric-value" id="val-cadence">--</span>
+              <span class="metric-unit">rpm</span>
+            </div>
+          </div>
+          <!-- Elevation -->
+          <div class="metric-card elevation">
+            <div class="metric-label">Elevation</div>
+            <div class="metric-value-container">
+              <span class="metric-value" id="val-elevation">--</span>
+              <span class="metric-unit">m</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="resize-handle"></div>
+    </div>
+
+    <!-- Error Toast -->
+    <div id="error-toast"></div>
+
     <script>
-      var polyline = {};
+      /* ═══════════════════════════════════════════
+         Polyline encoding/decoding (Google format)
+         ═══════════════════════════════════════════ */
+      var polylineCodec = {};
 
       function py2_round(value) {
         return Math.floor(Math.abs(value) + 0.5) * (value >= 0 ? 1 : -1);
       }
 
-      function encode(current, previous, factor) {
+      function encodeCoord(current, previous, factor) {
         current = py2_round(current * factor);
         previous = py2_round(previous * factor);
         var coordinate = (current - previous) * 2;
@@ -54,34 +590,33 @@
         var output = "";
         while (coordinate >= 0x20) {
           output += String.fromCharCode((0x20 | (coordinate & 0x1f)) + 63);
-          coordinate /= 32;
+          coordinate >>>= 5; // Fixed: use unsigned right shift instead of /= 32
         }
-        output += String.fromCharCode((coordinate | 0) + 63);
+        output += String.fromCharCode(coordinate + 63);
         return output;
       }
 
-      polyline.decode = function (str, precision) {
+      polylineCodec.decode = function (str, precision) {
         var index = 0,
           lat = 0,
           lng = 0,
           coordinates = [],
           shift = 0,
           result = 0,
-          byte = null,
+          b = null,
           latitude_change,
           longitude_change,
           factor = Math.pow(10, Number.isInteger(precision) ? precision : 5);
 
         while (index < str.length) {
-          byte = null;
           shift = 1;
           result = 0;
 
           do {
-            byte = str.charCodeAt(index++) - 63;
-            result += (byte & 0x1f) * shift;
+            b = str.charCodeAt(index++) - 63;
+            result += (b & 0x1f) * shift;
             shift *= 32;
-          } while (byte >= 0x20);
+          } while (b >= 0x20);
 
           latitude_change = result & 1 ? (-result - 1) / 2 : result / 2;
 
@@ -89,10 +624,10 @@
           result = 0;
 
           do {
-            byte = str.charCodeAt(index++) - 63;
-            result += (byte & 0x1f) * shift;
+            b = str.charCodeAt(index++) - 63;
+            result += (b & 0x1f) * shift;
             shift *= 32;
-          } while (byte >= 0x20);
+          } while (b >= 0x20);
 
           longitude_change = result & 1 ? (-result - 1) / 2 : result / 2;
 
@@ -105,96 +640,829 @@
         return coordinates;
       };
 
-      polyline.encode = function (coordinates, precision) {
-        if (!coordinates.length) {
-          return "";
-        }
+      polylineCodec.encode = function (coordinates, precision) {
+        if (!coordinates.length) return "";
 
         var factor = Math.pow(10, Number.isInteger(precision) ? precision : 5),
           output =
-            encode(coordinates[0][0], 0, factor) +
-            encode(coordinates[0][1], 0, factor);
+            encodeCoord(coordinates[0][0], 0, factor) +
+            encodeCoord(coordinates[0][1], 0, factor);
 
         for (var i = 1; i < coordinates.length; i++) {
           var a = coordinates[i],
             b = coordinates[i - 1];
-          output += encode(a[0], b[0], factor);
-          output += encode(a[1], b[1], factor);
+          output += encodeCoord(a[0], b[0], factor);
+          output += encodeCoord(a[1], b[1], factor);
         }
 
         return output;
       };
 
-      function flipped(coords) {
-        var flipped = [];
+      function flipCoords(coords) {
+        // Fixed: renamed to avoid shadowing
+        var result = [];
         for (var i = 0; i < coords.length; i++) {
-          var coord = coords[i].slice();
-          flipped.push([coord[1], coord[0]]);
+          result.push([coords[i][1], coords[i][0]]);
         }
-        return flipped;
+        return result;
       }
 
-      polyline.fromGeoJSON = function (geojson, precision) {
-        if (geojson && geojson.type === "Feature") {
-          geojson = geojson.geometry;
-        }
+      polylineCodec.fromGeoJSON = function (geojson, precision) {
+        if (geojson && geojson.type === "Feature") geojson = geojson.geometry;
         if (!geojson || geojson.type !== "LineString") {
           throw new Error("Input must be a GeoJSON LineString");
         }
-        return polyline.encode(flipped(geojson.coordinates), precision);
+        return polylineCodec.encode(flipCoords(geojson.coordinates), precision);
       };
 
-      polyline.toGeoJSON = function (str, precision) {
-        var coords = polyline.decode(str, precision);
+      polylineCodec.toGeoJSON = function (str, precision) {
         return {
           type: "LineString",
-       	  coordinates: flipped(coords)
+          coordinates: flipCoords(polylineCodec.decode(str, precision)),
         };
       };
 
+      /* ═══════════════════════════════════════════
+         Haversine distance between two lat/lng points
+         ═══════════════════════════════════════════ */
+      function haversineDistance(lat1, lng1, lat2, lng2) {
+        var R = 6371000; // metres
+        var dLat = ((lat2 - lat1) * Math.PI) / 180;
+        var dLng = ((lng2 - lng1) * Math.PI) / 180;
+        var a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos((lat1 * Math.PI) / 180) *
+            Math.cos((lat2 * Math.PI) / 180) *
+            Math.sin(dLng / 2) *
+            Math.sin(dLng / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      }
 
+      /* ═══════════════════════════════════════════
+         Overlay positioning, dragging, resizing
+         ═══════════════════════════════════════════ */
+      (function setupOverlay() {
+        var overlay = document.getElementById("metrics-overlay");
+        var toggleBtn = document.getElementById("toggle-btn");
+        var resizeHandle = document.getElementById("resize-handle");
+        var isVisible = true;
 
-      var map = L.map("map").setView([51, 1], 8);
+        // Position defaults (responsive)
+        function getDefaults() {
+          var vw = window.innerWidth;
+          var vh = window.innerHeight;
+          var isSmall = vw < 550 || vh < 550;
+          var isPortrait = vh > vw;
+          var w, h;
+
+          if (isSmall) {
+            w = Math.min(vw - 24, 420);
+            h = "auto";
+          } else if (isPortrait) {
+            w = Math.min(vw - 24, 300);
+            h = "auto";
+          } else {
+            w = Math.min(280, vw * 0.3);
+            if (w < 240) w = 240;
+            h = "auto";
+          }
+
+          return { w: w, h: h, isSmall: isSmall, isPortrait: isPortrait };
+        }
+
+        function positionElements() {
+          var d = getDefaults();
+          var vw = window.innerWidth;
+          var vh = window.innerHeight;
+
+          overlay.style.width = d.w + "px";
+          if (d.h !== "auto") overlay.style.height = d.h + "px";
+          else overlay.style.height = "auto";
+
+          // Toggle layout based on dimensions
+          var panel = document.getElementById("metrics-panel");
+          if (d.isSmall) {
+            panel.classList.add("compact-hud");
+          } else {
+            panel.classList.remove("compact-hud");
+          }
+
+          // Position overlay at bottom-left by default
+          if (d.isSmall) {
+            overlay.style.bottom = "14px";
+            overlay.style.left = Math.max(10, (vw - d.w) / 2) + "px";
+            overlay.style.top = "auto";
+            overlay.style.right = "auto";
+            toggleBtn.style.bottom = "auto";
+            toggleBtn.style.top = "10px";
+            toggleBtn.style.right = "auto";
+            toggleBtn.style.left = "10px";
+          } else {
+            overlay.style.bottom = "18px";
+            overlay.style.left = "14px";
+            overlay.style.top = "auto";
+            overlay.style.right = "auto";
+            toggleBtn.style.bottom = "auto";
+            toggleBtn.style.top = "14px";
+            toggleBtn.style.right = "auto";
+            toggleBtn.style.left = "14px";
+          }
+        }
+
+        positionElements();
+        window.addEventListener("resize", positionElements);
+
+        // Toggle
+        toggleBtn.addEventListener("click", function () {
+          isVisible = !isVisible;
+          overlay.classList.toggle("collapsed", !isVisible);
+          toggleBtn.classList.toggle("active", isVisible);
+        });
+
+        // Drag overlay
+        var isDragging = false,
+          dragStartX,
+          dragStartY,
+          overlayStartX,
+          overlayStartY;
+
+        overlay.addEventListener("mousedown", startDrag);
+        overlay.addEventListener("touchstart", startDrag, { passive: false });
+
+        function startDrag(e) {
+          if (e.target === resizeHandle || e.target.closest("#resize-handle"))
+            return;
+          // Only allow drag on the panel header area
+          var header = e.target.closest(".panel-header");
+          if (!header) return;
+
+          isDragging = true;
+          var rect = overlay.getBoundingClientRect();
+          var point = e.touches ? e.touches[0] : e;
+          dragStartX = point.clientX;
+          dragStartY = point.clientY;
+          overlayStartX = rect.left;
+          overlayStartY = rect.top;
+
+          // Switch from bottom/left to top/left positioning for drag
+          overlay.style.top = rect.top + "px";
+          overlay.style.left = rect.left + "px";
+          overlay.style.bottom = "auto";
+          overlay.style.right = "auto";
+
+          e.preventDefault();
+          e.stopPropagation();
+        }
+
+        document.addEventListener("mousemove", onDrag);
+        document.addEventListener("touchmove", onDrag, { passive: false });
+
+        function onDrag(e) {
+          if (!isDragging) return;
+          var point = e.touches ? e.touches[0] : e;
+          var dx = point.clientX - dragStartX;
+          var dy = point.clientY - dragStartY;
+          var newX = Math.max(
+            0,
+            Math.min(
+              overlayStartX + dx,
+              window.innerWidth - overlay.offsetWidth,
+            ),
+          );
+          var newY = Math.max(
+            0,
+            Math.min(
+              overlayStartY + dy,
+              window.innerHeight - overlay.offsetHeight,
+            ),
+          );
+          overlay.style.left = newX + "px";
+          overlay.style.top = newY + "px";
+          e.preventDefault();
+        }
+
+        document.addEventListener("mouseup", stopDrag);
+        document.addEventListener("touchend", stopDrag);
+
+        function stopDrag() {
+          isDragging = false;
+        }
+
+        // Resize overlay
+        var isResizing = false,
+          resizeStartX,
+          resizeStartY,
+          startWidth,
+          startHeight;
+
+        resizeHandle.addEventListener("mousedown", startResize);
+        resizeHandle.addEventListener("touchstart", startResize, {
+          passive: false,
+        });
+
+        function startResize(e) {
+          isResizing = true;
+          var point = e.touches ? e.touches[0] : e;
+          resizeStartX = point.clientX;
+          resizeStartY = point.clientY;
+          startWidth = overlay.offsetWidth;
+          startHeight = overlay.offsetHeight;
+          e.preventDefault();
+          e.stopPropagation();
+        }
+
+        document.addEventListener("mousemove", onResize);
+        document.addEventListener("touchmove", onResize, { passive: false });
+
+        function onResize(e) {
+          if (!isResizing) return;
+          var point = e.touches ? e.touches[0] : e;
+          var dw = point.clientX - resizeStartX;
+          var dh = point.clientY - resizeStartY;
+          var newW = Math.max(
+            180,
+            Math.min(startWidth + dw, window.innerWidth - 20),
+          );
+          var newH = Math.max(150, startHeight + dh);
+          overlay.style.width = newW + "px";
+          // Keep height auto unless user explicitly resizes
+          e.preventDefault();
+        }
+
+        document.addEventListener("mouseup", stopResize);
+        document.addEventListener("touchend", stopResize);
+
+        function stopResize() {
+          isResizing = false;
+        }
+
+        // Prevent map interactions when interacting with overlay
+        overlay.addEventListener("mousedown", function (e) {
+          e.stopPropagation();
+        });
+        overlay.addEventListener("dblclick", function (e) {
+          e.stopPropagation();
+        });
+        toggleBtn.addEventListener("mousedown", function (e) {
+          e.stopPropagation();
+        });
+      })();
+
+      // Sparklines removed to simplify metrics overlay
+
+      /* ═══════════════════════════════════════════
+         Map and Motion Logic
+         ═══════════════════════════════════════════ */
+      var map = L.map("map", {
+        zoomControl: false,
+        attributionControl: false,
+      }).setView([51, 1], 8);
+
+      // Add zoom control in a good position for iframes
+      L.control.zoom({ position: "topright" }).addTo(map);
 
       L.tileLayer(
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        { maxZoom: 19 },
       ).addTo(map);
-      const query = (new URLSearchParams(window.location.search)).get("id");
-      const pwd = (new URLSearchParams(window.location.search)).get("pwd");
-      const activity = (new URLSearchParams(window.location.search)).get("activity");
-      (async () => {
-        const data = await fetch(`https://leecheeyong.vercel.app/strava${pwd ? `?pwd=${pwd}` : ''}${activity ? `&activity=${activity}` : ""}${query ? `&id=${query}` : ""}`).then(
-          (r) => r.json(),
-        );
-	const pline = polyline.decode(data.map.summary_polyline)
-    var trackRoute = pline.map(m => { return { lat: m[0], lng: m[1] } });
-	map.setView(pline[(pline.length / 4).toFixed(0)], 16)
-        var seqGroup = L.motion
-          .seq([
-            L.motion
+
+      // Prevent overlay from blocking map events
+      var overlayEl = document.getElementById("metrics-overlay");
+      L.DomEvent.disableClickPropagation(overlayEl);
+      L.DomEvent.disableScrollPropagation(overlayEl);
+      var toggleBtnEl = document.getElementById("toggle-btn");
+      L.DomEvent.disableClickPropagation(toggleBtnEl);
+
+      /* ── Parse URL params safely ── */
+      var searchParams = new URLSearchParams(window.location.search);
+      var query = searchParams.get("id");
+      var pwd = searchParams.get("pwd");
+      var activity = searchParams.get("activity");
+
+      // Fixed: Build URL params correctly regardless of which params are present
+      function buildApiUrl() {
+        var base = "https://leecheeyong.vercel.app/strava";
+        var params = [];
+        if (pwd) params.push("pwd=" + encodeURIComponent(pwd));
+        if (activity) params.push("activity=" + encodeURIComponent(activity));
+        if (query) params.push("id=" + encodeURIComponent(query));
+        return base + (params.length ? "?" + params.join("&") : "");
+      }
+
+      /* ── Main async init ── */
+      (async function init() {
+        var loadingScreen = document.getElementById("loading-screen");
+        var errorToast = document.getElementById("error-toast");
+
+        try {
+          var response = await fetch(buildApiUrl());
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          var data = await response.json();
+
+          var minuteData = data.minuteData || null;
+          if (!minuteData || minuteData.length === 0) {
+            var toggleBtn = document.getElementById("toggle-btn");
+            var overlay = document.getElementById("metrics-overlay");
+            if (toggleBtn) toggleBtn.style.display = "none";
+            if (overlay) overlay.style.display = "none";
+          }
+          var pline = polylineCodec.decode(data.map.summary_polyline);
+
+          if (!pline.length) throw new Error("No route data found");
+
+          var trackRoute = pline.map(function (m) {
+            return { lat: m[0], lng: m[1] };
+          });
+
+          // Fixed: Use Math.floor instead of .toFixed(0) which returns a string
+          var viewIdx = Math.floor(pline.length / 4);
+          map.setView(pline[viewIdx], 16);
+
+          // ── Compute segment speeds from minuteData ──
+          var segmentSpeeds = []; // km/h per minuteData segment
+          var segmentTimesMs = []; // real-world time per minuteData segment (ms)
+          var totalDistance = 0; // metres
+          var totalRealDurationMs = 0;
+
+          if (minuteData && minuteData.length > 1) {
+            for (var i = 1; i < minuteData.length; i++) {
+              var prev = minuteData[i - 1];
+              var curr = minuteData[i];
+              var dist = haversineDistance(
+                prev.lat,
+                prev.lng,
+                curr.lat,
+                curr.lng,
+              );
+              var timeDiffMs =
+                new Date(curr.timestamp) - new Date(prev.timestamp);
+              var timeDiffSec = timeDiffMs / 1000;
+              totalDistance += dist;
+
+              var speed = 0;
+              if (timeDiffSec > 0) {
+                speed = (dist / timeDiffSec) * 3.6; // m/s -> km/h
+              }
+
+              // Algorithmic compression for stationary/paused intervals to prevent animation lag:
+              // If the speed is extremely slow (< 1.8 km/h), compress the virtual time duration of this interval to max 1 second.
+              var adjustedTimeMs = Math.max(timeDiffMs, 100);
+              if (speed < 1.8) {
+                adjustedTimeMs = Math.min(adjustedTimeMs, 1000);
+              }
+
+              segmentTimesMs.push(adjustedTimeMs);
+              segmentSpeeds.push(speed);
+            }
+            totalRealDurationMs =
+              new Date(minuteData[minuteData.length - 1].timestamp) -
+              new Date(minuteData[0].timestamp);
+          }
+
+          // ── Map polyline points → nearest minuteData index ──
+          // For each polyline point, find the closest minuteData point
+          var pointToMinuteIdx = [];
+          if (minuteData && minuteData.length > 0) {
+            var lastMatchIdx = 0;
+            for (var p = 0; p < pline.length; p++) {
+              var bestIdx = lastMatchIdx;
+              var bestDist = Infinity;
+              // Search forward starting from lastMatchIdx to guarantee monotonic progression (no backwards time jumps)
+              // We strictly limit the max index advancement per step to prevent premature jumps to future sections (like overlapping routes or loops).
+              var maxJump = Math.max(
+                3,
+                Math.ceil(minuteData.length / pline.length) * 2,
+              );
+              var searchStart = lastMatchIdx;
+              var searchEnd = Math.min(
+                minuteData.length,
+                lastMatchIdx + maxJump,
+              );
+              for (var m = searchStart; m < searchEnd; m++) {
+                var d = haversineDistance(
+                  pline[p][0],
+                  pline[p][1],
+                  minuteData[m].lat,
+                  minuteData[m].lng,
+                );
+                if (d < bestDist) {
+                  bestDist = d;
+                  bestIdx = m;
+                }
+              }
+              pointToMinuteIdx.push(bestIdx);
+              lastMatchIdx = bestIdx;
+            }
+          }
+
+          // ── Build per-segment durations for speed-based movement ──
+          // Group polyline points by their corresponding minuteData index to create segments
+          var segments = []; // [{points: [{lat,lng},...], minuteIdx: n, durationMs: n}, ...]
+          var totalAssignedTime = 0;
+          if (
+            minuteData &&
+            minuteData.length > 1 &&
+            pointToMinuteIdx.length > 0
+          ) {
+            var currentSegMinuteIdx = pointToMinuteIdx[0];
+            var currentSegPoints = [trackRoute[0]];
+
+            for (var s = 1; s < pline.length; s++) {
+              var minuteIdx = pointToMinuteIdx[s];
+              if (
+                minuteIdx !== currentSegMinuteIdx &&
+                currentSegPoints.length > 0
+              ) {
+                // Close current segment and start a new one
+                // Include the current point as both end of this seg and start of next
+                currentSegPoints.push(trackRoute[s]);
+                segments.push({
+                  points: currentSegPoints,
+                  minuteIdx: currentSegMinuteIdx,
+                });
+                currentSegPoints = [trackRoute[s]];
+                currentSegMinuteIdx = minuteIdx;
+              } else {
+                currentSegPoints.push(trackRoute[s]);
+              }
+            }
+            // Push the final segment
+            if (currentSegPoints.length > 1) {
+              segments.push({
+                points: currentSegPoints,
+                minuteIdx: currentSegMinuteIdx,
+              });
+            }
+
+            // Assign real-world time gaps
+            for (var sg = 0; sg < segments.length; sg++) {
+              var mIdx = segments[sg].minuteIdx;
+              var realMs =
+                mIdx > 0 && mIdx <= segmentTimesMs.length
+                  ? segmentTimesMs[mIdx - 1]
+                  : segmentTimesMs.length > 0
+                    ? segmentTimesMs[0]
+                    : 60000;
+              segments[sg].realMs = realMs;
+              segments[sg].durationMs = realMs; // Base animation duration is realMs
+              totalAssignedTime += realMs;
+            }
+          }
+
+          // ── Sizing of total animation in real-world time ms ──
+          var TOTAL_ANIM_MS =
+            totalAssignedTime > 0 ? totalAssignedTime : 1800000; // 30 minutes default if fallback
+
+          // ── Build Leaflet Motion sequence ──
+          var markerIcon = L.divIcon({
+            html: '<div style="width:12px;height:12px;border-radius:50%;background:white;box-shadow:0 0 10px 3px rgba(255,255,255,0.7),0 0 20px 6px rgba(249,115,22,0.5);"></div>',
+            iconSize: L.point(12, 12),
+            iconAnchor: L.point(6, 6),
+          });
+
+          // Single custom marker that moves along the route
+          var movingMarker = L.marker(pline[0], { icon: markerIcon }).addTo(
+            map,
+          );
+
+          var motionLayers = [];
+          var segmentCumulativeDurations = []; // Cumulative ms at end of each segment
+
+          if (segments.length > 0) {
+            var cumDur = 0;
+            for (var sl = 0; sl < segments.length; sl++) {
+              var seg = segments[sl];
+              var layer = L.motion
+                .polyline(
+                  seg.points,
+                  { color: "transparent" },
+                  { easing: L.Motion.Ease.linear }, // Linear within each segment for accurate speed representation
+                )
+                .motionDuration(seg.durationMs);
+              motionLayers.push(layer);
+              cumDur += seg.durationMs;
+              segmentCumulativeDurations.push(cumDur);
+            }
+            TOTAL_ANIM_MS = cumDur; // Use the actual total
+          } else {
+            // Fallback: single polyline, no minuteData
+            var singleLayer = L.motion
               .polyline(
                 trackRoute,
-                {
-                  color: "orangered",
-                },
-                {
-                  easing: L.Motion.Ease.easeInOutQuad,
-                },
-                {
-                  removeOnEnd: false,
-                  icon: L.divIcon({
-                    html: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" style="fill: rgba(255, 255, 255, 1);"><path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2z"></path></svg>',
-                    iconSize: L.point(5, 15),
-                  }),
-                },
+                { color: "transparent" },
+                { easing: L.Motion.Ease.easeInOutQuad },
               )
-              .motionDuration(80000),
-          ])
-          .addTo(map);
+              .motionDuration(TOTAL_ANIM_MS);
+            motionLayers.push(singleLayer);
+            segmentCumulativeDurations.push(TOTAL_ANIM_MS);
+          }
 
-        setTimeout(function () {
-          seqGroup.motionStart();
-        }, 1000);
+          // Draw the full route as a faint trail
+          L.polyline(trackRoute, {
+            color: "rgba(255, 255, 255, 0.12)",
+            weight: 3,
+            lineCap: "round",
+            lineJoin: "round",
+          }).addTo(map);
+
+          // The animated colored trail
+          var animatedTrail = L.polyline([], {
+            color: "#f97316",
+            weight: 3.5,
+            lineCap: "round",
+            lineJoin: "round",
+            opacity: 0.9,
+          }).addTo(map);
+
+          var seqGroup = L.motion.seq(motionLayers).addTo(map);
+
+          // ── Metrics state ──
+          var animStartTime = 0;
+          var currentMinuteIdx = 0;
+          var activeSegmentIdx = 0;
+          var virtualElapsed = 0;
+          var lastFrameTime = 0;
+          var currentSpeedMultiplier = 120; // default to 120x speed
+
+          // ── Update metrics display ──
+          function updateMetrics(minuteIdx) {
+            if (!minuteData || minuteData.length === 0) return;
+            if (minuteIdx < 0) minuteIdx = 0;
+            if (minuteIdx >= minuteData.length)
+              minuteIdx = minuteData.length - 1;
+
+            currentMinuteIdx = minuteIdx;
+            var point = minuteData[minuteIdx];
+            if (!point) return;
+
+            // Compute speed from minuteData segments
+            var speed = 0;
+            if (minuteIdx > 0 && minuteIdx <= segmentSpeeds.length) {
+              speed = segmentSpeeds[minuteIdx - 1];
+            } else if (minuteIdx === 0 && segmentSpeeds.length > 0) {
+              speed = segmentSpeeds[0];
+            }
+
+            // Update values with animation
+            document.getElementById("val-speed").textContent = speed.toFixed(1);
+            document.getElementById("val-hr").textContent =
+              point.heartrate || "--";
+            document.getElementById("val-cadence").textContent =
+              point.cadence || "--";
+            document.getElementById("val-elevation").textContent =
+              point.elevation != null ? point.elevation.toFixed(0) : "--";
+          }
+
+          // ── Track animation and trail with requestAnimationFrame ──
+          var trailPointCount = 0; // How many complete polyline points are in the trail
+          var lastMotionUpdate = 0;
+          var animRunning = false;
+
+          function trackMotion() {
+            if (!animRunning) return;
+
+            var now = Date.now();
+            var delta = now - lastFrameTime;
+            lastFrameTime = now;
+
+            virtualElapsed += delta * currentSpeedMultiplier;
+            var progress = Math.min(virtualElapsed / TOTAL_ANIM_MS, 1);
+
+            // Progress bar
+            document.getElementById("progress-fill").style.width =
+              progress * 100 + "%";
+
+            // Find which segment we're in and the progress within it
+            var segIdx = 0;
+            var segElapsed = virtualElapsed;
+            for (var i = 0; i < segmentCumulativeDurations.length; i++) {
+              var segStart = i === 0 ? 0 : segmentCumulativeDurations[i - 1];
+              var segEnd = segmentCumulativeDurations[i];
+              if (virtualElapsed <= segEnd) {
+                segIdx = i;
+                segElapsed = virtualElapsed - segStart;
+                break;
+              }
+              segIdx = i;
+              segElapsed = virtualElapsed - segStart;
+            }
+            activeSegmentIdx = segIdx;
+
+            // Calculate global polyline point index from segment progress
+            var globalIdx, frac;
+            if (segments.length > 0) {
+              // Find which global polyline point range this segment covers
+              var segStartPtIdx = 0;
+              for (var si = 0; si < segIdx; si++) {
+                segStartPtIdx += segments[si].points.length - 1; // -1 because segments share endpoints
+              }
+              var segPtCount = segments[segIdx]
+                ? segments[segIdx].points.length
+                : 1;
+              var segDuration =
+                segIdx < segmentCumulativeDurations.length
+                  ? segIdx === 0
+                    ? segmentCumulativeDurations[0]
+                    : segmentCumulativeDurations[segIdx] -
+                      segmentCumulativeDurations[segIdx - 1]
+                  : 1;
+              var segProgress = Math.min(segElapsed / segDuration, 1);
+              var floatPtInSeg = segProgress * (segPtCount - 1);
+              globalIdx = segStartPtIdx + Math.floor(floatPtInSeg);
+              frac = floatPtInSeg - Math.floor(floatPtInSeg);
+            } else {
+              var floatIdx = progress * (pline.length - 1);
+              globalIdx = Math.floor(floatIdx);
+              frac = floatIdx - globalIdx;
+            }
+
+            // Clamp
+            if (globalIdx >= pline.length - 1) {
+              globalIdx = pline.length - 2;
+              frac = 1;
+            }
+            if (globalIdx < 0) {
+              globalIdx = 0;
+              frac = 0;
+            }
+
+            // Interpolate current position
+            var lat =
+              pline[globalIdx][0] +
+              (pline[globalIdx + 1][0] - pline[globalIdx][0]) * frac;
+            var lng =
+              pline[globalIdx][1] +
+              (pline[globalIdx + 1][1] - pline[globalIdx][1]) * frac;
+
+            movingMarker.setLatLng([lat, lng]);
+
+            // Build trail incrementally (avoid .slice() — just add new points)
+            var neededPts = globalIdx + 1;
+            while (
+              trailPointCount < neededPts &&
+              trailPointCount < pline.length
+            ) {
+              animatedTrail.addLatLng(
+                L.latLng(pline[trailPointCount][0], pline[trailPointCount][1]),
+              );
+              trailPointCount++;
+            }
+            // Update the interpolated tip by splicing the last point
+            var allLats = animatedTrail.getLatLngs();
+            var tipLatLng = L.latLng(lat, lng);
+            if (allLats.length > 0 && allLats.length > trailPointCount) {
+              // Replace the tip
+              allLats[allLats.length - 1] = tipLatLng;
+              animatedTrail.setLatLngs(allLats);
+            } else {
+              // Add tip
+              animatedTrail.addLatLng(tipLatLng);
+            }
+
+            // Determine minuteData index from segment
+            var mIdx = 0;
+            if (segments.length > 0 && segments[segIdx]) {
+              mIdx = segments[segIdx].minuteIdx;
+            } else if (pointToMinuteIdx.length > globalIdx) {
+              mIdx = pointToMinuteIdx[globalIdx];
+            }
+
+            // Update metrics on every frame for perfect sync
+            updateMetrics(mIdx);
+
+            // Update elapsed time continuously (60fps) based on animation progress
+            var realElapsedMs = 0;
+            if (minuteData && minuteData.length > 0) {
+              if (segments.length > 0) {
+                for (var si = 0; si < segIdx; si++) {
+                  realElapsedMs += segments[si].realMs;
+                }
+                var currentSeg = segments[segIdx];
+                if (currentSeg) {
+                  var segDuration =
+                    segIdx < segmentCumulativeDurations.length
+                      ? segIdx === 0
+                        ? segmentCumulativeDurations[0]
+                        : segmentCumulativeDurations[segIdx] -
+                          segmentCumulativeDurations[segIdx - 1]
+                      : 1;
+                  var segProgress = Math.min(segElapsed / segDuration, 1);
+                  realElapsedMs += segProgress * currentSeg.realMs;
+                }
+              } else {
+                realElapsedMs = progress * totalRealDurationMs;
+              }
+            }
+
+            var hrs = Math.floor(realElapsedMs / 3600000);
+            var mins = Math.floor((realElapsedMs % 3600000) / 60000);
+            var secs = Math.floor((realElapsedMs % 60000) / 1000);
+            var timeStr =
+              hrs > 0
+                ? hrs +
+                  ":" +
+                  (mins < 10 ? "0" : "") +
+                  mins +
+                  ":" +
+                  (secs < 10 ? "0" : "") +
+                  secs
+                : (mins < 10 ? "0" : "") +
+                  mins +
+                  ":" +
+                  (secs < 10 ? "0" : "") +
+                  secs;
+            document.getElementById("elapsed-time").textContent = timeStr;
+
+            if (progress < 1) {
+              requestAnimationFrame(trackMotion);
+            } else {
+              // Animation complete - show final metrics
+              animRunning = false;
+              if (minuteData && minuteData.length > 0) {
+                updateMetrics(minuteData.length - 1);
+                // Show exact total duration at the end
+                var finalElapsedMs = totalRealDurationMs;
+                var hrsf = Math.floor(finalElapsedMs / 3600000);
+                var minsf = Math.floor((finalElapsedMs % 3600000) / 60000);
+                var secsf = Math.floor((finalElapsedMs % 60000) / 1000);
+                var timeStrf =
+                  hrsf > 0
+                    ? hrsf +
+                      ":" +
+                      (minsf < 10 ? "0" : "") +
+                      minsf +
+                      ":" +
+                      (secsf < 10 ? "0" : "") +
+                      secsf
+                    : (minsf < 10 ? "0" : "") +
+                      minsf +
+                      ":" +
+                      (secsf < 10 ? "0" : "") +
+                      secsf;
+                document.getElementById("elapsed-time").textContent = timeStrf;
+              }
+              document.getElementById("progress-fill").style.width = "100%";
+              movingMarker.setLatLng(pline[pline.length - 1]);
+            }
+          }
+
+          // ── Fit map bounds to show route ──
+          var bounds = L.latLngBounds(
+            pline.map(function (p) {
+              return [p[0], p[1]];
+            }),
+          );
+          map.fitBounds(bounds, { padding: [30, 30] });
+
+          // ── Start animation ──
+          // Dismiss loading screen
+          loadingScreen.classList.add("fade-out");
+          setTimeout(function () {
+            loadingScreen.style.display = "none";
+          }, 700);
+
+          // Initialize speed toggle button listener with explicit event propagation block
+          var speedBtn = document.getElementById("speed-btn");
+          if (speedBtn) {
+            var speeds = [1, 10, 30, 60, 120];
+            var currentSpeedIdx = 4; // default to 120
+            currentSpeedMultiplier = speeds[currentSpeedIdx];
+
+            function cycleSpeed() {
+              currentSpeedIdx = (currentSpeedIdx + 1) % speeds.length;
+              currentSpeedMultiplier = speeds[currentSpeedIdx];
+              speedBtn.textContent = currentSpeedMultiplier + "x";
+            }
+
+            L.DomEvent.on(speedBtn, "click", function (e) {
+              L.DomEvent.stopPropagation(e);
+              cycleSpeed();
+            });
+            L.DomEvent.on(speedBtn, "touchstart", function (e) {
+              L.DomEvent.stopPropagation(e);
+              cycleSpeed();
+              e.preventDefault();
+            });
+          }
+
+          setTimeout(function () {
+            animStartTime = Date.now();
+            lastFrameTime = Date.now();
+            virtualElapsed = 0;
+            animRunning = true;
+            seqGroup.motionStart();
+            requestAnimationFrame(trackMotion);
+          }, 1200);
+        } catch (err) {
+          console.error("Strava Motion Error:", err);
+          var loadEl = document.getElementById("loading-screen");
+          if (loadEl) loadEl.style.display = "none";
+          var toast = document.getElementById("error-toast");
+          if (toast) {
+            toast.textContent = "Failed to load activity: " + err.message;
+            toast.style.display = "block";
+          }
+        }
       })();
     </script>
   </body>
